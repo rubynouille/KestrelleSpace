@@ -76,21 +76,44 @@ export default function PersistentPlayer() {
 
   return (
     <div className="w-full fixed bottom-0 left-0 right-0 z-50">
-      <div className={`persistent-player w-full bg-black/30 backdrop-blur-lg border-t border-white/10 p-4 transition-all duration-300 ${showMiniPlaylist ? 'pb-0' : ''}`}>
+      <div className={`persistent-player w-full bg-black/30 backdrop-blur-lg border-t border-white/10 p-3 sm:p-4 transition-all duration-300 ${showMiniPlaylist ? 'pb-0' : ''}`}>
         <div className="max-w-6xl mx-auto">
-          <div className="grid grid-cols-12 items-center gap-2">
-            <div className="col-span-4 lg:col-span-3">
+          <div className="flex flex-col sm:grid sm:grid-cols-12 sm:items-center sm:gap-2">
+            {/* Mobile layout - stacked */}
+            <div className="flex items-center justify-between sm:hidden mb-2">
+              <div className="flex-1 min-w-0">
+                <NowPlaying track={currentTrack} isPlaying={isPlaying} compact={true} />
+              </div>
+              
+              <div className="flex items-center space-x-1">
+                <PlaybackControls
+                  isPlaying={isPlaying}
+                  onPlayPause={() => currentTrack && togglePlay()}
+                  onSkipForward={() => skipTrack('next')}
+                  onSkipBack={() => skipTrack('prev')}
+                  compact={true}
+                  repeatMode={repeatMode}
+                  onRepeatToggle={toggleRepeat}
+                  isShuffle={isShuffle}
+                  onShuffleToggle={toggleShuffle}
+                  showPlaylist={showMiniPlaylist}
+                  onPlaylistToggle={toggleMiniPlaylist}
+                  hasAlbum={!!currentAlbum}
+                  // Key helps ensure component re-renders when shuffle/repeat change
+                  key={`${repeatMode}-${isShuffle ? 'shuffle' : 'no-shuffle'}`}
+                />
+              </div>
+            </div>
+            
+            {/* Desktop layout - grid */}
+            <div className="hidden sm:block col-span-4 lg:col-span-3">
               <NowPlaying track={currentTrack} isPlaying={isPlaying} compact={true} />
             </div>
             
-            <div className="col-span-4 lg:col-span-3 flex justify-center">
+            <div className="hidden sm:flex col-span-4 lg:col-span-3 justify-center">
               <PlaybackControls
                 isPlaying={isPlaying}
-                onPlayPause={() => {
-                  if (currentTrack) {
-                    togglePlay();
-                  }
-                }}
+                onPlayPause={() => currentTrack && togglePlay()}
                 onSkipForward={() => skipTrack('next')}
                 onSkipBack={() => skipTrack('prev')}
                 compact={true}
@@ -101,6 +124,8 @@ export default function PersistentPlayer() {
                 showPlaylist={showMiniPlaylist}
                 onPlaylistToggle={toggleMiniPlaylist}
                 hasAlbum={!!currentAlbum}
+                // Key helps ensure component re-renders when shuffle/repeat change
+                key={`desktop-${repeatMode}-${isShuffle ? 'shuffle' : 'no-shuffle'}`}
               />
             </div>
             
@@ -113,7 +138,7 @@ export default function PersistentPlayer() {
               />
             </div>
             
-            <div className="hidden lg:block lg:col-span-2 flex justify-end">
+            <div className="hidden lg:flex lg:col-span-2 justify-end">
               <VolumeControl
                 volume={volume}
                 isMuted={isMuted}
@@ -124,8 +149,8 @@ export default function PersistentPlayer() {
             </div>
           </div>
           
-          {/* Mobile progress bar - shown below controls on small screens */}
-          <div className="sm:hidden mt-3">
+          {/* Progress bar - shown below controls on small screens */}
+          <div className="md:hidden mt-1">
             <ProgressBar
               currentTime={currentTime}
               duration={duration}

@@ -100,19 +100,39 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const timeUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null);
   
+  // Declare skipToNextTrack function ref - we'll assign its implementation after defining functions
+  const skipToNextTrackRef = useRef<() => void>(() => {});
+  
+  // Define handleTrackEnded using the ref to avoid circular dependencies
+  const handleTrackEnded = useCallback(() => {
+    if (repeatMode === 'one') {
+      // Repeat current track
+      if (audioRef.current) {
+        audioRef.current.currentTime = 0;
+        audioRef.current.play().catch(error => {
+          console.error("Autoplay was prevented:", error);
+          setIsPlaying(false);
+        });
+      }
+    } else {
+      // Use our skipToNextTrack function for consistency
+      skipToNextTrackRef.current();
+    }
+  }, [repeatMode]);
+  
   // Initialize audio element
   useEffect(() => {
     // Create audio element if it doesn't exist
     if (!audioRef.current) {
       const audio = new Audio();
-      audio.preload = 'auto';
+      audio.preload = 'metadata';
       audioRef.current = audio;
       
       // Set initial volume
       audio.volume = volume;
       
-      // Handle audio events
-      audio.addEventListener('ended', handleTrackEnded);
+      // Only set up metadata and error listeners here
+      // (events that don't depend on changing state)
       audio.addEventListener('loadedmetadata', () => {
         setDuration(audio.duration);
       });
@@ -124,7 +144,6 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     return () => {
       if (audioRef.current) {
         audioRef.current.pause();
-        audioRef.current.removeEventListener('ended', handleTrackEnded);
         
         if (timeUpdateIntervalRef.current) {
           clearInterval(timeUpdateIntervalRef.current);
@@ -133,6 +152,20 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     };
   }, []);
   
+  // Set up the 'ended' event listener separately so it always has the latest state
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    
+    // Clean up previous listener before adding a new one
+    audio.removeEventListener('ended', handleTrackEnded);
+    audio.addEventListener('ended', handleTrackEnded);
+    
+    return () => {
+      audio.removeEventListener('ended', handleTrackEnded);
+    };
+  }, [handleTrackEnded]); // This will update when handleTrackEnded changes
+
   // Update audio source when track changes
   useEffect(() => {
     if (audioRef.current && currentTrack) {
@@ -258,22 +291,58 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     setPlayQueue(queue);
   }, [currentAlbum, isShuffle, currentTrack]);
   
-  // Handle track ended event
-  const handleTrackEnded = useCallback(() => {
-    if (repeatMode === 'one') {
-      // Repeat current track
-      if (audioRef.current) {
-        audioRef.current.currentTime = 0;
-        audioRef.current.play().catch(error => {
-          console.error("Autoplay was prevented:", error);
+  // Simplify skipTrack function to reuse the same logic
+  const skipToNextTrack = useCallback(() => {
+    // For album tracks
+    if (currentAlbum && currentTrack && playQueue.length > 0) {
+      const currentIndex = playQueue.findIndex(track => track.id === currentTrack.id);
+      if (currentIndex !== -1) {
+        const nextIndex = (currentIndex + 1) % playQueue.length;
+        
+        // If we've reached the end and repeat is off, stop playback
+        if (nextIndex === 0 && repeatMode === 'none') {
           setIsPlaying(false);
-        });
+          if (audioRef.current) audioRef.current.currentTime = 0;
+          return;
+        }
+        
+        // Play the next track
+        setCurrentTrack(playQueue[nextIndex]);
+        setIsPlaying(true);
+        return;
       }
-    } else {
-      // Play next track
-      skipTrack('next');
     }
-  }, [repeatMode]);
+    
+    // For singles
+    if (!currentAlbum && currentTrack && library.singles.length > 0) {
+      const currentIndex = library.singles.findIndex(track => track.id === currentTrack.id);
+      if (currentIndex !== -1) {
+        // If not the last track, play next
+        if (currentIndex < library.singles.length - 1) {
+          setCurrentTrack(library.singles[currentIndex + 1]);
+          setIsPlaying(true);
+          return;
+        }
+        // If last track and repeat all, go back to first
+        else if (repeatMode === 'all') {
+          setCurrentTrack(library.singles[0]);
+          setIsPlaying(true);
+          return;
+        }
+        // Otherwise stop playback
+        else {
+          setIsPlaying(false);
+          if (audioRef.current) audioRef.current.currentTime = 0;
+          return;
+        }
+      }
+    }
+  }, [currentTrack, currentAlbum, playQueue, library.singles, repeatMode]);
+  
+  // Update the ref to the latest implementation
+  useEffect(() => {
+    skipToNextTrackRef.current = skipToNextTrack;
+  }, [skipToNextTrack]);
   
   // Play track function
   const playTrack = useCallback((track: Track, album?: Album) => {
@@ -307,42 +376,45 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     }
   }, [currentTrack]);
   
-  // Skip to next or previous track
+  // Update skipTrack to use skipToNextTrack for the 'next' direction
   const skipTrack = useCallback((direction: 'next' | 'prev') => {
-    if (!currentTrack || !currentAlbum) return;
+    if (!currentTrack) return;
     
-    // Find the current index in the queue
-    const currentIndex = playQueue.findIndex(track => track.id === currentTrack.id);
-    
-    if (currentIndex !== -1) {
-      let nextIndex: number;
-      
-      if (direction === 'next') {
-        nextIndex = (currentIndex + 1) % playQueue.length;
-        
-        // If we've reached the end and repeat is off, stop playback
-        if (nextIndex === 0 && repeatMode === 'none') {
-          setIsPlaying(false);
-          return;
-        }
-      } else {
-        // Previous track or restart current if < 3 seconds in
-        if (currentTime < 3) {
-          nextIndex = (currentIndex - 1 + playQueue.length) % playQueue.length;
-        } else {
-          // Just restart current track
-          if (audioRef.current) {
-            audioRef.current.currentTime = 0;
-            return;
+    if (direction === 'next') {
+      skipToNextTrack();
+    } else {
+      // Previous track or restart current if < 3 seconds in
+      if (currentAlbum && playQueue.length > 0) {
+        const currentIndex = playQueue.findIndex(track => track.id === currentTrack.id);
+        if (currentIndex !== -1) {
+          if (currentTime < 3) {
+            const prevIndex = (currentIndex - 1 + playQueue.length) % playQueue.length;
+            setCurrentTrack(playQueue[prevIndex]);
+          } else {
+            // Just restart current track
+            if (audioRef.current) audioRef.current.currentTime = 0;
           }
-          return;
+        }
+      } else if (library.singles.length > 0) {
+        const currentIndex = library.singles.findIndex(track => track.id === currentTrack.id);
+        if (currentIndex !== -1) {
+          if (currentTime < 3) {
+            if (currentIndex > 0) {
+              setCurrentTrack(library.singles[currentIndex - 1]);
+            } else if (repeatMode === 'all') {
+              setCurrentTrack(library.singles[library.singles.length - 1]);
+            } else {
+              // Just restart current track
+              if (audioRef.current) audioRef.current.currentTime = 0;
+            }
+          } else {
+            // Just restart current track
+            if (audioRef.current) audioRef.current.currentTime = 0;
+          }
         }
       }
-      
-      // Play the next track
-      setCurrentTrack(playQueue[nextIndex]);
     }
-  }, [currentTrack, currentAlbum, playQueue, repeatMode, currentTime]);
+  }, [currentTrack, currentAlbum, currentTime, playQueue, library.singles, repeatMode, skipToNextTrack]);
   
   // Seek to a specific time
   const seek = useCallback((time: number) => {
@@ -369,20 +441,25 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
   
   // Toggle repeat mode
   const toggleRepeat = useCallback(() => {
+    // When enabling any repeat mode, turn off shuffle
     setRepeatMode(current => {
-      switch (current) {
-        case 'none': return 'all';
-        case 'all': return 'one';
-        case 'one': return 'none';
-        default: return 'none';
+      const nextMode = current === 'none' ? 'all' : current === 'all' ? 'one' : 'none';
+      if (nextMode !== 'none' && isShuffle) {
+        setIsShuffle(false);
       }
+      return nextMode;
     });
-  }, []);
+  }, [isShuffle]);
   
   // Toggle shuffle
   const toggleShuffle = useCallback(() => {
-    setIsShuffle(prev => !prev);
-  }, []);
+    // When enabling shuffle, turn off repeat mode
+    const willBeShuffle = !isShuffle;
+    if (willBeShuffle && repeatMode !== 'none') {
+      setRepeatMode('none');
+    }
+    setIsShuffle(willBeShuffle);
+  }, [isShuffle, repeatMode]);
   
   // Toggle mini playlist
   const toggleMiniPlaylist = useCallback(() => {

@@ -1,10 +1,10 @@
 {
   "name": "rose-kestrelle-music",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.2.0a",
   "type": "module",
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -H 0.0.0.0",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"

@@ -89,8 +89,9 @@ export default function VolumeControl({
         <div 
           className="progress-fill" 
           style={{ width: `${(isMuted ? 0 : volume) * 100}%` }}
-        ></div>
-        <div className="progress-handle"></div>
+        >
+          <div className="progress-handle"></div>
+        </div>
       </div>
     </div>
   );

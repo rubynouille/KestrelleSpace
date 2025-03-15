@@ -65,7 +65,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang="en" className={`${inter.variable} ${poppins.variable}`}>
       <body>
         <MusicPlayerProvider>
+          <main>
           {children}
+          </main>
           <PersistentPlayer />
         </MusicPlayerProvider>
       </body>
